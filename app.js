@@ -58,11 +58,18 @@ app.post("/register", async (req, res) => {
     }
 });
 
+// AWS COGNITO (DAY 3)
+// Generate a JWT token and refresh token
+function generateTokens(username) {
+    const token = jwt.sign({ username }, process.env.JWT_SECRET, { expiresIn: "1h" });
+    const refreshToken = jwt.sign({ username }, process.env.JWT_SECRET, { expiresIn: "7d" });
+    return { token, refreshToken };
+}
+
 app.post("/login", async (req, res) => {
     const { username, password } = req.body;
 
     try {
-        // Authenticate user with Cognito
         const params = {
             AuthFlow: "USER_PASSWORD_AUTH",
             ClientId: process.env.AWS_CLIENT_ID,
@@ -73,18 +80,31 @@ app.post("/login", async (req, res) => {
         };
 
         const authResult = await cognito.initiateAuth(params).promise();
+        const { token, refreshToken } = generateTokens(username);
 
-        // Generate JWT token
-        const token = jwt.sign(
-            { username: username },
-            process.env.JWT_SECRET,
-            { expiresIn: "1h" }
-        );
-
-        res.json({ token });
+        res.json({ token, refreshToken });
     } catch (err) {
         console.error("Error logging in:", err);
         res.status(401).json({ error: "Invalid credentials" });
+    }
+});
+
+// Refresh token endpoint
+app.post("/refresh-token", (req, res) => {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) return res.status(401).json({ error: "Refresh token required" });
+
+    try {
+        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+
+        // Generate a new access token
+        const token = jwt.sign({ username: decoded.username }, process.env.JWT_SECRET, { expiresIn: "1h" });
+
+        res.json({ token });
+    } catch (err) {
+        console.error("Invalid refresh token:", err);
+        res.status(403).json({ error: "Invalid refresh token" });
     }
 });
 
@@ -103,7 +123,7 @@ function authenticate(req, res, next) {
 
 app.get("/profile", authenticate, (req, res) => {
     res.json({
-        message: "This is a protected route",
+        message: "User profile",
         user: req.user,
     })
 })
